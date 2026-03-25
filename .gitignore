@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local database credentials
+config.py
+
+# Generated TPC-H data files are too large for a normal GitHub repo
+tpch-tools/dbgen/*.csv
+tpch-tools/dbgen/*.tbl
