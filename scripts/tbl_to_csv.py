@@ -1,8 +1,8 @@
 from pathlib import Path
 
-data_dir = Path(r"C:\Dev\sc3020-project-2\tpch-tools\dbgen")
 
-files = [
+DATA_DIR = Path(__file__).resolve().parents[1] / "tpch-tools" / "dbgen"
+FILES = [
     "customer.tbl",
     "lineitem.tbl",
     "nation.tbl",
@@ -10,14 +10,14 @@ files = [
     "part.tbl",
     "partsupp.tbl",
     "region.tbl",
-    "supplier.tbl"
+    "supplier.tbl",
 ]
 
-for file in files:
-    input_file = data_dir / file
-    output_file = data_dir / file.replace(".tbl", ".csv")
 
-    with open(input_file, "r", encoding="utf-8") as fin, open(output_file, "w", encoding="utf-8", newline="") as fout:
+def convert_tbl_to_csv(input_file: Path, output_file: Path) -> None:
+    with input_file.open("r", encoding="utf-8") as fin, output_file.open(
+        "w", encoding="utf-8", newline=""
+    ) as fout:
         for line in fin:
             if line.endswith("|\n"):
                 fout.write(line[:-2] + "\n")
@@ -26,4 +26,23 @@ for file in files:
             else:
                 fout.write(line)
 
-print("Done.")
+
+def main() -> None:
+    missing_files = [name for name in FILES if not (DATA_DIR / name).exists()]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"Missing .tbl files in {DATA_DIR}: {missing}. "
+            "Generate the TPC-H data first before running this script."
+        )
+
+    for name in FILES:
+        input_file = DATA_DIR / name
+        output_file = DATA_DIR / name.replace(".tbl", ".csv")
+        convert_tbl_to_csv(input_file, output_file)
+
+    print(f"Converted {len(FILES)} files in {DATA_DIR}")
+
+
+if __name__ == "__main__":
+    main()
