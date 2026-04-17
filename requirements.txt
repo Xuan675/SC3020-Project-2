@@ -2,4 +2,5 @@ psycopg
 Pillow
 networkx
 plotly
+numpy
 kaleido==0.2.1
