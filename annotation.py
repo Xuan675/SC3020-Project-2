@@ -1,9 +1,7 @@
 import re
 
-
 SCAN_NODE_TYPES = {"Seq Scan", "Index Scan", "Index Only Scan", "Bitmap Heap Scan"}
 JOIN_NODE_TYPES = {"Hash Join", "Merge Join", "Nested Loop"}
-
 
 def walk_plan_with_path(node, path=()):
     nodes = [(node, path)]
@@ -11,18 +9,14 @@ def walk_plan_with_path(node, path=()):
         nodes.extend(walk_plan_with_path(child, path + (child_index,)))
     return nodes
 
-
 def get_root_plan(plan):
     return plan[0]["Plan"]
-
 
 def get_top_total_cost(plan):
     return get_root_plan(plan).get("Total Cost")
 
-
 def _get_join_condition(node):
     return node.get("Hash Cond") or node.get("Merge Cond") or node.get("Join Filter")
-
 
 def _get_scan_condition(node):
     return (
@@ -32,10 +26,8 @@ def _get_scan_condition(node):
         or node.get("TID Cond")
     )
 
-
 def _get_relation_name(node):
     return node.get("Relation Name") or node.get("Alias") or "unknown table"
-
 
 def _collect_relations(node):
     relations = set()
@@ -43,7 +35,6 @@ def _collect_relations(node):
         if current.get("Node Type") in SCAN_NODE_TYPES:
             relations.add(_get_relation_name(current))
     return tuple(sorted(relations))
-
 
 def _to_operator_record(node, path):
     node_type = node.get("Node Type")
@@ -71,7 +62,6 @@ def _to_operator_record(node, path):
         "plan_rows": node.get("Plan Rows"),
     }
 
-
 def _extract_operator_records(plan):
     root = get_root_plan(plan)
     records = []
@@ -80,7 +70,6 @@ def _extract_operator_records(plan):
         if record is not None:
             records.append(record)
     return records
-
 
 def _similarity_score(selected, candidate):
     score = 0
@@ -95,7 +84,6 @@ def _similarity_score(selected, candidate):
     overlap = set(selected["relations_in_subtree"]) & set(candidate["relations_in_subtree"])
     score += len(overlap)
     return score
-
 
 def _find_best_match(selected_operator, alternative_operators):
     candidates = [op for op in alternative_operators if op["kind"] == selected_operator["kind"]]
@@ -113,7 +101,6 @@ def _find_best_match(selected_operator, alternative_operators):
     if best_score <= 5:
         return None
     return best_candidate
-
 
 def _build_explanations(qep, aqps):
     qep_operators = _extract_operator_records(qep)
@@ -177,12 +164,10 @@ def _build_explanations(qep, aqps):
         )
     return explanations
 
-
 def _format_ratio_text(alternative):
     if alternative["cost_ratio"] is None:
         return f"{alternative['method']}"
     return f"{alternative['method']} (~{alternative['cost_ratio']:.2f}x operator cost)"
-
 
 def _extract_query_components(query):
     normalized = " ".join(query.strip().rstrip(";").split())
@@ -234,12 +219,10 @@ def _extract_query_components(query):
 
     return components
 
-
 def _normalize_condition(condition):
     if not condition:
         return ""
     return " ".join(condition.lower().replace("(", " ").replace(")", " ").split())
-
 
 def _same_equality(left_condition, right_condition):
     left_parts = [part.strip() for part in _normalize_condition(left_condition).split("=")]
@@ -248,10 +231,8 @@ def _same_equality(left_condition, right_condition):
         return False
     return set(left_parts) == set(right_parts)
 
-
 def _strip_aliases(condition):
     return " ".join(part.split(".")[-1] for part in _normalize_condition(condition).split())
-
 
 def _find_scan(component, explanations):
     names = {component.get("relation", "").lower(), component.get("alias", "").lower()}
@@ -261,14 +242,12 @@ def _find_scan(component, explanations):
             return explanation
     return None
 
-
 def _find_join(component, explanations):
     for explanation in explanations:
         selected = explanation["selected"]
         if selected["kind"] == "join" and _same_equality(component["fragment"], selected["subject"]):
             return explanation
     return None
-
 
 def _find_filter(component, explanations):
     target = _strip_aliases(component["fragment"])
@@ -281,13 +260,11 @@ def _find_filter(component, explanations):
             return explanation
     return None
 
-
 def _changed_alternatives(explanation):
     return [
         alt for alt in explanation["alternatives"]
         if alt["status"] == "matched" and alt["method_changed"]
     ]
-
 
 def generate_annotations(query, qep, aqps):
     annotations = []
@@ -351,7 +328,6 @@ def generate_annotations(query, qep, aqps):
             )
 
     return annotations
-
 
 def format_annotated_query(query, annotations):
     lines = [query.strip(), ""]

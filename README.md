@@ -31,6 +31,14 @@ DB_CONFIG = {
 
 ## Run
 
+Launch the GUI:
+
+```bash
+python project.py
+```
+
+Run from the command line with a query:
+
 ```bash
 python project.py --query "SELECT * FROM customer c, orders o WHERE c.c_custkey = o.o_custkey"
 ```

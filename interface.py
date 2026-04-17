@@ -1,20 +1,28 @@
 import io
 import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk
-import networkx as nx
-import plotly.graph_objects as go
+from tkinter import messagebox, ttk
 import re
 import textwrap
+
+try:
+    from PIL import Image, ImageTk
+    import networkx as nx
+    import plotly.graph_objects as go
+except ImportError:
+    Image = None
+    ImageTk = None
+    nx = None
+    go = None
 # tkinter interface
 class Interface:
-    def __init__(self, schemas):
+    def __init__(self, schemas, pipeline=None):
         self.root = tk.Tk()
         self.root.title("Database Selector")
         self.root.geometry("1600x900")
         self.schemas = schemas
         self.schema = tk.StringVar()
         self.conn = None
+        self.pipeline = pipeline
 
         self.root.columnconfigure(0, weight=1)
         self.root.columnconfigure(1, weight=1)
@@ -22,6 +30,7 @@ class Interface:
 
         # create select schema component
         self._select_schema()
+        self._query_annotation_panel()
         self._query_plan_display()
 
     # selects database schema
@@ -42,8 +51,66 @@ class Interface:
         confirm = tk.Button(select, text="confirm", command=self._schema_callback)
         confirm.grid(row=0, column=2, padx=5)
     def _schema_callback(self):
-        # connnect to database
-        pass
+        if not self.schema.get():
+            messagebox.showwarning("Schema required", "Please choose a schema first.")
+            return
+        messagebox.showinfo("Schema selected", f"Using schema/database: {self.schema.get()}")
+
+    def _query_annotation_panel(self):
+        self.left = tk.LabelFrame(self.root, text="SQL Query Annotation")
+        self.left.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.left.rowconfigure(1, weight=1)
+        self.left.rowconfigure(4, weight=1)
+        self.left.columnconfigure(0, weight=1)
+
+        tk.Label(self.left, text="Input SQL Query").grid(row=0, column=0, sticky="w", padx=5, pady=(5, 0))
+        self.query_text = tk.Text(self.left, height=10, wrap="word")
+        self.query_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.query_text.insert(
+            "1.0",
+            "SELECT * FROM customer c, orders o WHERE c.c_custkey = o.o_custkey",
+        )
+
+        run_button = tk.Button(self.left, text="Run Annotation", command=self._run_query_callback)
+        run_button.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+        tk.Label(self.left, text="Annotated Output").grid(row=3, column=0, sticky="w", padx=5, pady=(5, 0))
+        self.output_text = tk.Text(self.left, height=18, wrap="word")
+        self.output_text.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
+
+    def _run_query_callback(self):
+        query = self.query_text.get("1.0", "end").strip()
+        if not query:
+            messagebox.showwarning("Query required", "Please enter a SQL query.")
+            return
+        if self.pipeline is None:
+            messagebox.showerror("Pipeline missing", "The annotation pipeline is not connected.")
+            return
+
+        self.output_text.delete("1.0", "end")
+        self.output_text.insert("1.0", "Running annotation...")
+        self.root.update_idletasks()
+
+        try:
+            result = self.pipeline(query)
+        except Exception as exc:
+            self.output_text.delete("1.0", "end")
+            self.output_text.insert("1.0", f"Error:\n{exc}")
+            return
+
+        self.output_text.delete("1.0", "end")
+        self.output_text.insert("1.0", result["annotated_query"])
+        self._try_show_default_plan(result.get("qep"))
+
+    def _try_show_default_plan(self, qep):
+        if not qep:
+            return
+        try:
+            self._load_image_callback(self.img, qep)
+            self.right.grid()
+        except Exception:
+            # Annotation output is the core deliverable; plan rendering is optional.
+            self.right.grid_remove()
 
     def _query_plan_display(self):
         # parent
@@ -101,9 +168,11 @@ TREE_LAYOUT = go.Layout(
     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
     yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed"),
     plot_bgcolor='white'
-)
+) if go else None
 class TreeRender:
     def __init__(self, data):
+        if nx is None or go is None:
+            raise ImportError("Install Pillow, networkx, plotly, and kaleido to render plan images.")
         # directed graph
         self.graph = nx.DiGraph()
 
@@ -276,6 +345,8 @@ class TreeRender:
         return self._generate_diagram()
     
     def get_img(self):
+        if Image is None or ImageTk is None:
+            raise ImportError("Install Pillow to load rendered plan images.")
         fig = self._render()
         img = fig.to_image(format="png", scale=1, width=900, height= 506.25)
         return img
