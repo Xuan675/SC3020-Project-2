@@ -5,7 +5,7 @@ from pathlib import Path
 from preprocessing import connect_db, get_qep, get_representative_aqps
 from annotation import generate_annotations, format_annotated_query
 
-
+conn = None
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate query-plan annotations for a SQL query."
@@ -55,12 +55,17 @@ def resolve_query(args):
 
     return _read_query_from_prompt()
 
+def connect(params):
+    global conn
+    conn = connect_db(params)
+    return conn is not None
 
 def run_annotation_pipeline(query: str):
+    global conn
+    if not conn:
+        raise ConnectionError("No connection to database.")
     if not query:
         raise ValueError("No SQL query provided.")
-
-    conn = connect_db()
     try:
         qep = get_qep(conn, query)
         aqps = get_representative_aqps(conn, query)
@@ -73,15 +78,15 @@ def run_annotation_pipeline(query: str):
             "qep": qep,
             "aqps": aqps,
         }
-
-    finally:
+    except:
+        print("Unexpcetd error has occured")
         conn.close()
 
 
 def launch_gui():
     from interface import Interface
 
-    app = Interface(["TPC-H"], run_annotation_pipeline)
+    app = Interface(connect, run_annotation_pipeline)
     app.run()
 
 

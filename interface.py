@@ -3,58 +3,79 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import re
 import textwrap
+from PIL import Image, ImageTk
+import networkx as nx
+import plotly.graph_objects as go
 
-try:
-    from PIL import Image, ImageTk
-    import networkx as nx
-    import plotly.graph_objects as go
-except ImportError:
-    Image = None
-    ImageTk = None
-    nx = None
-    go = None
+class ConnectInterface:
+    def __init__(self, parent, on_success_callback):
+        self.top = tk.Toplevel(parent)
+        self.top.title("Database Connection")
+        self.top.geometry("350x300")
+        self.top.resizable(False, False)
+        self.top.transient(parent)
+        self.top.grab_set()
+        
+        self.on_success_callback = on_success_callback
+        
+        self.config = {
+            "host": tk.StringVar(value="localhost"),
+            "port": tk.StringVar(value="5432"),
+            "dbname": tk.StringVar(value="TPC-H"),
+            "user": tk.StringVar(value="postgres"),
+            "password": tk.StringVar(value="password"),
+        }
+
+        self._build_ui()
+
+    def _build_ui(self):
+        frame = tk.Frame(self.top, padx=20, pady=20)
+        frame.pack(expand=True, fill="both")
+
+        for i, (label, var) in enumerate(self.config.items()):
+            tk.Label(frame, text=f"{label.capitalize()}:").grid(row=i, column=0, sticky="w", pady=5)
+            entry_kwargs = {"textvariable": var}
+            if label == "password":
+                entry_kwargs["show"] = "*"
+            
+            tk.Entry(frame, **entry_kwargs).grid(row=i, column=1, sticky="ew", padx=10)
+
+        btn_connect = tk.Button(frame, text="Connect", command=self._validate_and_connect, bg="#4CAF50", fg="white")
+        btn_connect.grid(row=len(self.config), column=0, columnspan=2, pady=20, sticky="ew")
+
+    def _validate_and_connect(self):
+        conn_params = {k: v.get() for k, v in self.config.items()}
+        
+        try:
+            print(f"Connecting to {conn_params['dbname']} at {conn_params['host']}...")
+            self.on_success_callback(conn_params)
+        except Exception as e:
+            messagebox.showerror("Connection Error", f"Failed to connect:\n{e}")
+
 # tkinter interface
 class Interface:
-    def __init__(self, schemas, pipeline=None):
+    def __init__(self, connect, pipeline=None):
         self.root = tk.Tk()
         self.root.title("Database Selector")
-        self.root.geometry("1600x900")
-        self.schemas = schemas
-        self.schema = tk.StringVar()
-        self.conn = None
+        self.root.geometry("1800x900")
+        self.connected = False
         self.pipeline = pipeline
-
+        self.connect_callback = connect
         self.root.columnconfigure(0, weight=1)
-        self.root.columnconfigure(1, weight=1)
+        self.root.columnconfigure(1, weight=3)
         self.root.rowconfigure(1, weight=1)
 
-        # create select schema component
-        self._select_schema()
         self._query_annotation_panel()
         self._query_plan_display()
-
-    # selects database schema
-    def _select_schema(self):
-        # parent
-        select = tk.LabelFrame(self.root)
-        select.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5)
-        select.columnconfigure(1, weight=1)
-        # label for the dropdown
-        label = tk.Label(select, text="Choose schema:")
-        label.grid(row=0, column=0, padx=5)
-
-        # dropdown component
-        dropdown = ttk.Combobox(select, textvariable=self.schema, state="readonly", values=self.schemas)
-        dropdown.grid(row=0, column=1, sticky="ew", padx=5)
-
-        # confirm button
-        confirm = tk.Button(select, text="confirm", command=self._schema_callback)
-        confirm.grid(row=0, column=2, padx=5)
-    def _schema_callback(self):
-        if not self.schema.get():
-            messagebox.showwarning("Schema required", "Please choose a schema first.")
-            return
-        messagebox.showinfo("Schema selected", f"Using schema/database: {self.schema.get()}")
+        self.connect_interface = ConnectInterface(self.root, self._on_connect)
+    def _on_connect(self, params):
+        self.conn_params = params
+        if self.connect_callback(params):
+            self.root.deiconify()
+            self.connect_interface.top.destroy()
+            messagebox.showinfo("Success", f"Connected to {params['dbname']} successfully.")
+        else:
+            messagebox.showinfo("Failed", f"Connect to {params['dbname']} failed.")
 
     def _query_annotation_panel(self):
         self.left = tk.LabelFrame(self.root, text="SQL Query Annotation")
@@ -100,13 +121,21 @@ class Interface:
 
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", result["annotated_query"])
-        self._try_show_default_plan(result.get("qep"))
+        self._try_show_default_plan(result.get("qep"), self.img)
+        aqps = result.get("aqps", [])
+        for aqp in aqps:
+            if "disabled_option" not in aqp:
+                continue
+            if aqp["disabled_option"] == "enable_hashjoin":
+                self._try_show_default_plan(aqp["plan"], self.hash_img)
+            if aqp["disabled_option"] == "enable_mergejoin":
+                self._try_show_default_plan(aqp["plan"], self.merge_img)
 
-    def _try_show_default_plan(self, qep):
+    def _try_show_default_plan(self, qep, component):
         if not qep:
             return
         try:
-            self._load_image_callback(self.img, qep)
+            self._load_image_callback(component, qep)
             self.right.grid()
         except Exception:
             # Annotation output is the core deliverable; plan rendering is optional.
@@ -133,17 +162,14 @@ class Interface:
         self.img = tk.Label(scroll_content)
         self.img.pack(fill="x", expand=False, padx=5)
 
-        # merge join frame
-        # SET enable_hashjoin = off;
-        tk.Label(scroll_content, text="Merge Join").pack()
+
+        tk.Label(scroll_content, text="DISABLED Hash Join").pack()
+        self.hash_img = tk.Label(scroll_content)
+        self.hash_img.pack(fill="x", expand=False, padx=5)
+
+        tk.Label(scroll_content, text="DISABLED Merge Join").pack()
         self.merge_img = tk.Label(scroll_content)
         self.merge_img.pack(fill="x", expand=False, padx=5)
-
-        # nlj join frame
-        # SET enable_hashjoin = off; SET enable_mergejoin = off;
-        tk.Label(scroll_content, text="Nested Loop").pack()
-        self.nlj_img = tk.Label(scroll_content)
-        self.nlj_img.pack(fill="x", expand=False, padx=5)
 
         self.right.grid_remove()
 
@@ -301,7 +327,7 @@ class TreeRender:
             y_list.append(p[nid][0])
             label_list.append(self.labels[nid]["label"])
             # make the node dynamic for better ux
-            size_list.append(10 + (self.labels[nid]["label"].count('<br>') + 1) * 10)
+            size_list.append((self.labels[nid]["label"].count('<br>') + 2) * 10)
         vertices = go.Scatter(x=x_list, 
                               y=y_list, 
                               mode="markers+text", 
@@ -348,5 +374,5 @@ class TreeRender:
         if Image is None or ImageTk is None:
             raise ImportError("Install Pillow to load rendered plan images.")
         fig = self._render()
-        img = fig.to_image(format="png", scale=1, width=900, height= 506.25)
+        img = fig.to_image(format="png", scale=1, width=960, height= 540)
         return img

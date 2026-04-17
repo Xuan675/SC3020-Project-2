@@ -11,9 +11,13 @@ PLANNER_OPTIONS = (
     "enable_bitmapscan",
 )
 
-def connect_db():
-    return psycopg.connect(**DB_CONFIG)
-
+def connect_db(params = DB_CONFIG):
+    try:
+        conn = psycopg.connect(**params)
+        return conn
+    except Exception as e:
+        return None
+    
 def run_sql(conn, sql: str):
     with conn.cursor() as cur:
         cur.execute(sql)
