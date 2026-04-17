@@ -106,7 +106,7 @@ def _build_explanations(qep, aqps):
     qep_operators = _extract_operator_records(qep)
     qep_total_cost = get_top_total_cost(qep)
     alternative_operator_map = {
-        aqp["disabled_option"]: _extract_operator_records(aqp["plan"])
+        aqp["enabled_option"]: _extract_operator_records(aqp["plan"])
         for aqp in aqps
         if "plan" in aqp
     }
@@ -117,16 +117,16 @@ def _build_explanations(qep, aqps):
         unavailable = []
 
         for aqp in aqps:
-            disabled_option = aqp["disabled_option"]
+            enabled_option = aqp["enabled_option"]
             if "error" in aqp:
-                unavailable.append(f"{disabled_option} ({aqp['error']})")
+                unavailable.append(f"{enabled_option} ({aqp['error']})")
                 continue
 
-            matched = _find_best_match(selected, alternative_operator_map[disabled_option])
+            matched = _find_best_match(selected, alternative_operator_map[enabled_option])
             if matched is None:
                 alternatives.append(
                     {
-                        "disabled_option": disabled_option,
+                        "enabled_option": enabled_option,
                         "status": "no_match",
                     }
                 )
@@ -142,7 +142,7 @@ def _build_explanations(qep, aqps):
 
             alternatives.append(
                 {
-                    "disabled_option": disabled_option,
+                    "enabled_option": enabled_option,
                     "status": "matched",
                     "method": matched["node_type"],
                     "method_changed": method_changed,

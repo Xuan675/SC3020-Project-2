@@ -36,9 +36,12 @@ def get_qep(conn, query: str):
         conn.rollback()
 
 
-def get_aqp(conn, query: str, disabled_option: str):
+def get_aqp(conn, query: str, enabled_option: str):
     try:
-        run_sql(conn, f"SET LOCAL {disabled_option} = off;")
+        for option in PLANNER_OPTIONS:
+            if option == enabled_option:
+                continue
+            run_sql(conn, f"SET LOCAL {option} = off;")
         result = run_sql(conn, f"EXPLAIN (FORMAT JSON) {query}")
         return _extract_plan(result)
     finally:
@@ -52,12 +55,12 @@ def get_representative_aqps(conn, query: str):
         try:
             plan = get_aqp(conn, query, option)
             aqps.append({
-                "disabled_option": option,
+                "enabled_option": option,
                 "plan": plan,
             })
         except Exception as exc:
             aqps.append({
-                "disabled_option": option,
+                "enabled_option": option,
                 "error": str(exc),
             })
     return aqps

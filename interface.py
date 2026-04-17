@@ -124,11 +124,11 @@ class Interface:
         self._try_show_default_plan(result.get("qep"), self.img)
         aqps = result.get("aqps", [])
         for aqp in aqps:
-            if "disabled_option" not in aqp:
+            if "enabled_option" not in aqp:
                 continue
-            if aqp["disabled_option"] == "enable_hashjoin":
+            if aqp["enabled_option"] == "enable_hashjoin":
                 self._try_show_default_plan(aqp["plan"], self.hash_img)
-            if aqp["disabled_option"] == "enable_mergejoin":
+            if aqp["enabled_option"] == "enable_mergejoin":
                 self._try_show_default_plan(aqp["plan"], self.merge_img)
 
     def _try_show_default_plan(self, qep, component):
@@ -163,11 +163,11 @@ class Interface:
         self.img.pack(fill="x", expand=False, padx=5)
 
 
-        tk.Label(scroll_content, text="DISABLED Hash Join").pack()
+        tk.Label(scroll_content, text="Hash Join").pack()
         self.hash_img = tk.Label(scroll_content)
         self.hash_img.pack(fill="x", expand=False, padx=5)
 
-        tk.Label(scroll_content, text="DISABLED Merge Join").pack()
+        tk.Label(scroll_content, text="Merge Join").pack()
         self.merge_img = tk.Label(scroll_content)
         self.merge_img.pack(fill="x", expand=False, padx=5)
 
