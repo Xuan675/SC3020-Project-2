@@ -1,1 +1,5 @@
 psycopg[binary]
+Pillow
+networkx
+plotly
+kaleido==0.2.1
