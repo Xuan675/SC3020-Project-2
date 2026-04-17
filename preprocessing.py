@@ -5,6 +5,10 @@ PLANNER_OPTIONS = (
     "enable_hashjoin",
     "enable_mergejoin",
     "enable_nestloop",
+    "enable_seqscan",
+    "enable_indexscan",
+    "enable_indexonlyscan",
+    "enable_bitmapscan",
 )
 
 def connect_db():

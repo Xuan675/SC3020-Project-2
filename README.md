@@ -32,7 +32,19 @@ DB_CONFIG = {
 ## Run
 
 ```bash
-python project.py
+python project.py --query "SELECT * FROM customer c, orders o WHERE c.c_custkey = o.o_custkey"
 ```
 
-The program connects to the configured PostgreSQL database, retrieves the query execution plan and representative alternative query plans, and prints an annotated explanation for the sample query in the terminal.
+You can also pass a SQL file:
+
+```bash
+python project.py --query-file query.sql
+```
+
+Or pipe a generated query:
+
+```bash
+echo "SELECT * FROM customer c, orders o WHERE c.c_custkey = o.o_custkey" | python project.py
+```
+
+The program connects to the configured PostgreSQL database, retrieves the query execution plan and representative alternative query plans, and prints an annotated explanation for the provided query in the terminal.
