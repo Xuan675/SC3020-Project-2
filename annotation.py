@@ -9,16 +9,16 @@ def walk_plan_with_path(node, path=()):
         nodes.extend(walk_plan_with_path(child, path + (child_index,)))
     return nodes
 
-def get_root_plan(plan):
+def get_main_plan(plan):
     return plan[0]["Plan"]
 
 def get_top_total_cost(plan):
-    return get_root_plan(plan).get("Total Cost")
+    return get_main_plan(plan).get("Total Cost")
 
-def _get_join_condition(node):
+def get_join_condition(node):
     return node.get("Hash Cond") or node.get("Merge Cond") or node.get("Join Filter")
 
-def _get_scan_condition(node):
+def get_scan_condition(node):
     return (
         node.get("Index Cond")
         or node.get("Recheck Cond")
@@ -26,26 +26,28 @@ def _get_scan_condition(node):
         or node.get("TID Cond")
     )
 
-def _get_relation_name(node):
+def get_relation_name(node):
     return node.get("Relation Name") or node.get("Alias") or "unknown table"
 
 def _collect_relations(node):
     relations = set()
     for current, _ in walk_plan_with_path(node):
         if current.get("Node Type") in SCAN_NODE_TYPES:
-            relations.add(_get_relation_name(current))
+
+            relations.add(get_relation_name(current))
     return tuple(sorted(relations))
 
 def _to_operator_record(node, path):
     node_type = node.get("Node Type")
+    
     if node_type in JOIN_NODE_TYPES:
         kind = "join"
-        predicate = _get_join_condition(node) or "join condition"
+        predicate = get_join_condition(node) or "join condition"
         subject = predicate
     elif node_type in SCAN_NODE_TYPES:
         kind = "scan"
-        predicate = _get_scan_condition(node) or "no explicit predicate"
-        subject = _get_relation_name(node)
+        predicate = get_scan_condition(node) or "no explicit predicate"
+        subject = get_relation_name(node)
     else:
         return None
 
@@ -54,7 +56,7 @@ def _to_operator_record(node, path):
         "node_type": node_type,
         "path": path,
         "subject": subject,
-        "relation": _get_relation_name(node),
+        "relation": get_relation_name(node),
         "predicate": predicate,
         "relations_in_subtree": _collect_relations(node),
         "startup_cost": node.get("Startup Cost"),
@@ -63,7 +65,7 @@ def _to_operator_record(node, path):
     }
 
 def _extract_operator_records(plan):
-    root = get_root_plan(plan)
+    root = get_main_plan(plan)
     records = []
     for node, path in walk_plan_with_path(root):
         record = _to_operator_record(node, path)
