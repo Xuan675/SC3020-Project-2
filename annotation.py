@@ -1,3 +1,6 @@
+import re
+
+
 SCAN_NODE_TYPES = {"Seq Scan", "Index Scan", "Index Only Scan", "Bitmap Heap Scan"}
 JOIN_NODE_TYPES = {"Hash Join", "Merge Join", "Nested Loop"}
 
@@ -181,74 +184,170 @@ def _format_ratio_text(alternative):
     return f"{alternative['method']} (~{alternative['cost_ratio']:.2f}x operator cost)"
 
 
-def generate_annotations(_query, qep, aqps):
-    annotations = []
+def _extract_query_components(query):
+    normalized = " ".join(query.strip().rstrip(";").split())
+    from_match = re.search(
+        r"\bFROM\b\s+(.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    where_match = re.search(
+        r"\bWHERE\b\s+(.*?)(?=\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
 
-    for explanation in _build_explanations(qep, aqps):
+    components = []
+
+    if from_match:
+        for table_text in from_match.group(1).split(","):
+            parts = table_text.strip().split()
+            if not parts or "join" in [part.lower() for part in parts]:
+                continue
+
+            relation = parts[0]
+            alias = relation
+            if len(parts) >= 3 and parts[1].lower() == "as":
+                alias = parts[2]
+            elif len(parts) >= 2:
+                alias = parts[1]
+
+            components.append({
+                "type": "table",
+                "fragment": table_text.strip(),
+                "relation": relation,
+                "alias": alias,
+            })
+
+    if where_match:
+        predicates = re.split(r"\bAND\b", where_match.group(1), flags=re.IGNORECASE)
+        for predicate in predicates:
+            predicate = predicate.strip()
+            if not predicate:
+                continue
+
+            component_type = "join" if re.match(r"^\w+\.\w+\s*=\s*\w+\.\w+$", predicate) else "filter"
+            components.append({
+                "type": component_type,
+                "fragment": predicate,
+            })
+
+    return components
+
+
+def _normalize_condition(condition):
+    if not condition:
+        return ""
+    return " ".join(condition.lower().replace("(", " ").replace(")", " ").split())
+
+
+def _same_equality(left_condition, right_condition):
+    left_parts = [part.strip() for part in _normalize_condition(left_condition).split("=")]
+    right_parts = [part.strip() for part in _normalize_condition(right_condition).split("=")]
+    if len(left_parts) != 2 or len(right_parts) != 2:
+        return False
+    return set(left_parts) == set(right_parts)
+
+
+def _strip_aliases(condition):
+    return " ".join(part.split(".")[-1] for part in _normalize_condition(condition).split())
+
+
+def _find_scan(component, explanations):
+    names = {component.get("relation", "").lower(), component.get("alias", "").lower()}
+    for explanation in explanations:
         selected = explanation["selected"]
-        matched_alternatives = [
-            alt for alt in explanation["alternatives"] if alt["status"] == "matched"
-        ]
-        changed_alternatives = [
-            alt for alt in matched_alternatives if alt["method_changed"]
-        ]
+        if selected["kind"] == "scan" and selected["relation"].lower() in names:
+            return explanation
+    return None
 
-        if selected["kind"] == "scan":
-            base = (
-                f"{selected['subject']} is read using {selected['node_type']} "
-                f"(startup={selected['startup_cost']}, total={selected['total_cost']}, rows={selected['plan_rows']})."
-            )
-            annotations.append(base)
 
-            if selected["node_type"] == "Seq Scan":
-                if selected["predicate"] == "no explicit predicate":
-                    annotations.append(
-                        f"This is a full-table read for {selected['subject']} (no filter/index condition in this operator)."
-                    )
-                elif any("Index" in alt["method"] for alt in changed_alternatives):
-                    better = [
-                        _format_ratio_text(alt)
-                        for alt in changed_alternatives
-                        if "Index" in alt["method"]
-                    ]
-                    annotations.append(
-                        "Alternative index-based access paths exist but were not estimated cheaper in the selected plan: "
-                        + ", ".join(better)
-                        + "."
-                    )
-                else:
-                    annotations.append(
-                        "The optimizer retained sequential access under representative planner variations."
-                    )
-        else:
+def _find_join(component, explanations):
+    for explanation in explanations:
+        selected = explanation["selected"]
+        if selected["kind"] == "join" and _same_equality(component["fragment"], selected["subject"]):
+            return explanation
+    return None
+
+
+def _find_filter(component, explanations):
+    target = _strip_aliases(component["fragment"])
+    for explanation in explanations:
+        selected = explanation["selected"]
+        if selected["kind"] != "scan" or selected["predicate"] == "no explicit predicate":
+            continue
+        predicate = _strip_aliases(selected["predicate"])
+        if target == predicate or target in predicate:
+            return explanation
+    return None
+
+
+def _changed_alternatives(explanation):
+    return [
+        alt for alt in explanation["alternatives"]
+        if alt["status"] == "matched" and alt["method_changed"]
+    ]
+
+
+def generate_annotations(query, qep, aqps):
+    annotations = []
+    explanations = _build_explanations(qep, aqps)
+    components = _extract_query_components(query)
+
+    if not components:
+        annotations.append("No simple SQL components were extracted; showing plan-level annotations instead.")
+        components = []
+
+    for component in components:
+        if component["type"] == "table":
+            explanation = _find_scan(component, explanations)
+            if explanation is None:
+                annotations.append(f"[FROM {component['fragment']}] No matching scan node was found.")
+                continue
+
+            selected = explanation["selected"]
             annotations.append(
-                f"The condition {selected['subject']} is executed using {selected['node_type']} "
-                f"(startup={selected['startup_cost']}, total={selected['total_cost']}, rows={selected['plan_rows']})."
+                f"[FROM {component['fragment']}] Read using {selected['node_type']} "
+                f"(total={selected['total_cost']}, rows={selected['plan_rows']})."
+            )
+            if selected["node_type"] == "Seq Scan" and selected["predicate"] == "no explicit predicate":
+                annotations.append(
+                    f"[FROM {component['fragment']}] Full-table read: no filter/index condition appears in this scan node."
+                )
+
+        elif component["type"] == "join":
+            explanation = _find_join(component, explanations)
+            if explanation is None:
+                annotations.append(f"[WHERE {component['fragment']}] No matching join node was found.")
+                continue
+
+            selected = explanation["selected"]
+            annotations.append(
+                f"[WHERE {component['fragment']}] Executed using {selected['node_type']} "
+                f"(total={selected['total_cost']}, rows={selected['plan_rows']})."
             )
 
-            if changed_alternatives:
-                changed_alternatives.sort(
-                    key=lambda alt: alt["cost_ratio"]
-                    if alt["cost_ratio"] is not None
-                    else float("-inf"),
+            alternatives = _changed_alternatives(explanation)
+            if alternatives:
+                alternatives.sort(
+                    key=lambda alt: alt["cost_ratio"] if alt["cost_ratio"] is not None else 0,
                     reverse=True,
                 )
-                top_changed = ", ".join(
-                    _format_ratio_text(alt) for alt in changed_alternatives[:3]
-                )
                 annotations.append(
-                    f"{selected['node_type']} was preferred because representative alternatives were costlier: {top_changed}."
-                )
-            elif matched_alternatives:
-                annotations.append(
-                    f"{selected['node_type']} stayed preferred across representative planner variations."
+                    f"[WHERE {component['fragment']}] Representative AQP alternative: "
+                    + ", ".join(_format_ratio_text(alt) for alt in alternatives[:2])
+                    + "."
                 )
 
-        if explanation["unavailable"]:
+        elif component["type"] == "filter":
+            explanation = _find_filter(component, explanations)
+            if explanation is None:
+                annotations.append(f"[WHERE {component['fragment']}] No matching filter condition was found.")
+                continue
+
+            selected = explanation["selected"]
             annotations.append(
-                "Some alternative plans could not be generated: "
-                + "; ".join(explanation["unavailable"])
-                + "."
+                f"[WHERE {component['fragment']}] Applied during {selected['node_type']} on {selected['relation']}."
             )
 
     return annotations
