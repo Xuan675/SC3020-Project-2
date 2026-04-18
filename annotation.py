@@ -181,6 +181,12 @@ def _extract_query_components(query):
         normalized,
         flags=re.IGNORECASE,
     )
+    
+    join_match = re.search(
+        r"\bJOIN\s+\w+(?:\s+\w+)?\s+ON\s+(.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
 
     components = []
 
@@ -203,6 +209,13 @@ def _extract_query_components(query):
                 "relation": relation,
                 "alias": alias,
             })
+
+    if join_match:
+        on_condition = join_match.group(1).strip()
+        components.append({
+            "type": "join",
+            "fragment": on_condition,
+        })
 
     if where_match:
         predicates = re.split(r"\bAND\b", where_match.group(1), flags=re.IGNORECASE)
