@@ -121,15 +121,17 @@ class Interface:
 
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", result["annotated_query"])
-        self._try_show_default_plan(result.get("qep"), self.img)
+        self._try_show_default_plan(result.get("qep"), self.img, )
         aqps = result.get("aqps", [])
-        for aqp in aqps:
-            if "enabled_option" not in aqp:
-                continue
-            if aqp["enabled_option"] == "enable_hashjoin":
-                self._try_show_default_plan(aqp["plan"], self.hash_img)
-            if aqp["enabled_option"] == "enable_mergejoin":
-                self._try_show_default_plan(aqp["plan"], self.merge_img)
+        sorted_aqps = sorted(aqps, key=lambda x: (
+            x.get("plan", [{}])[0]
+            .get("Plan", {})
+            .get("Total Cost", float('inf'))
+        ))
+        self._try_show_default_plan(sorted_aqps[0]["plan"], self.first_img)
+        self.first_img_label.set(f"{sorted_aqps[0]['enabled_option'].replace('enable_', '')}")
+        self._try_show_default_plan(sorted_aqps[1]["plan"], self.second_img)
+        self.second_img_label.set(f"{sorted_aqps[1]['enabled_option'].replace('enable_', '')}")
 
     def _try_show_default_plan(self, qep, component):
         if not qep:
@@ -162,14 +164,15 @@ class Interface:
         self.img = tk.Label(scroll_content)
         self.img.pack(fill="x", expand=False, padx=5)
 
+        self.first_img_label = tk.StringVar(value="")
+        tk.Label(scroll_content, textvariable=self.first_img_label).pack()
+        self.first_img = tk.Label(scroll_content)
+        self.first_img.pack(fill="x", expand=False, padx=5)
 
-        tk.Label(scroll_content, text="Hash Join").pack()
-        self.hash_img = tk.Label(scroll_content)
-        self.hash_img.pack(fill="x", expand=False, padx=5)
-
-        tk.Label(scroll_content, text="Merge Join").pack()
-        self.merge_img = tk.Label(scroll_content)
-        self.merge_img.pack(fill="x", expand=False, padx=5)
+        self.second_img_label = tk.StringVar(value="")
+        tk.Label(scroll_content, textvariable=self.second_img_label).pack()
+        self.second_img = tk.Label(scroll_content)
+        self.second_img.pack(fill="x", expand=False, padx=5)
 
         self.right.grid_remove()
 
