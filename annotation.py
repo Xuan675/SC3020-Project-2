@@ -182,8 +182,8 @@ def _extract_query_components(query):
         flags=re.IGNORECASE,
     )
     
-    join_match = re.search(
-        r"\bJOIN\s+\w+(?:\s+\w+)?\s+ON\s+(.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
+    join_matches = re.findall(
+        r"\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+\w+(?:\s+\w+)?\s+ON\s+(.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
         normalized,
         flags=re.IGNORECASE,
     )
@@ -210,11 +210,10 @@ def _extract_query_components(query):
                 "alias": alias,
             })
 
-    if join_match:
-        on_condition = join_match.group(1).strip()
+    for on_condition in join_matches:
         components.append({
             "type": "join",
-            "fragment": on_condition,
+            "fragment": on_condition.strip(),
         })
 
     if where_match:
@@ -308,12 +307,12 @@ def generate_annotations(query, qep, aqps):
         elif component["type"] == "join":
             explanation = _find_join(component, explanations)
             if explanation is None:
-                annotations.append(f"[WHERE {component['fragment']}] No matching join node was found.")
+                annotations.append(f"[ON {component['fragment']}] No matching join node was found.")
                 continue
 
             selected = explanation["selected"]
             annotations.append(
-                f"[WHERE {component['fragment']}] Executed using {selected['node_type']} "
+                f"[ON {component['fragment']}] Executed using {selected['node_type']} "
                 f"(total={selected['total_cost']}, rows={selected['plan_rows']})."
             )
 
@@ -324,7 +323,7 @@ def generate_annotations(query, qep, aqps):
                     reverse=True,
                 )
                 annotations.append(
-                    f"[WHERE {component['fragment']}] Representative AQP alternative: "
+                    f"[ON {component['fragment']}] Representative AQP alternative: "
                     + ", ".join(_format_ratio_text(alt) for alt in alternatives[:2])
                     + "."
                 )
