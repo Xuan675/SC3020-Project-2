@@ -121,27 +121,57 @@ class Interface:
 
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", result["annotated_query"])
-        self._try_show_default_plan(result.get("qep"), self.img, )
-        aqps = result.get("aqps", [])
-        sorted_aqps = sorted(aqps, key=lambda x: (
-            x.get("plan", [{}])[0]
-            .get("Plan", {})
-            .get("Total Cost", float('inf'))
-        ))
-        self._try_show_default_plan(sorted_aqps[0]["plan"], self.first_img)
-        self.first_img_label.set(f"{sorted_aqps[0]['enabled_option'].replace('enable_', '')}")
-        self._try_show_default_plan(sorted_aqps[1]["plan"], self.second_img)
-        self.second_img_label.set(f"{sorted_aqps[1]['enabled_option'].replace('enable_', '')}")
+
+        self.first_img.config(image="")
+        self.first_img_label.set("")
+        self.second_img.config(image="")
+        self.second_img_label.set("")
+
+        qep_success = self._try_show_default_plan(result.get("qep"), self.img)
+
+        if qep_success:
+            self.right.grid()
+
+            aqps = result.get("aqps", [])
+            sorted_aqps = sorted(aqps, key=lambda x: (
+                x.get("plan", [{}])[0]
+                .get("Plan", {})
+                .get("Total Cost", float('inf'))
+            ))
+
+            if len(sorted_aqps) > 0:
+                try:
+                    self._try_show_default_plan(sorted_aqps[0]["plan"], self.first_img)
+                    # Format the label (e.g., 'enable_hashjoin' -> 'hashjoin')
+                    option_name = sorted_aqps[0].get('enabled_option', 'Unknown').replace('enable_', '')
+                    self.first_img_label.set(f"AQP 1: {option_name}")
+                except Exception as e:
+                    print(f"Error rendering first AQP: {e}")
+                    self.first_img_label.set("Error loading AQP 1")
+
+            if len(sorted_aqps) > 1:
+                try:
+                    self._try_show_default_plan(sorted_aqps[1]["plan"], self.second_img)
+                    option_name = sorted_aqps[1].get('enabled_option', 'Unknown').replace('enable_', '')
+                    self.second_img_label.set(f"AQP 2: {option_name}")
+                except Exception as e:
+                    print(f"Error rendering second AQP: {e}")
+                    self.second_img_label.set("Error loading AQP 2")
+        else:
+            self.right.grid_remove()
 
     def _try_show_default_plan(self, qep, component):
         if not qep:
-            return
+            return False
+            
         try:
             self._load_image_callback(component, qep)
-            self.right.grid()
-        except Exception:
-            # Annotation output is the core deliverable; plan rendering is optional.
-            self.right.grid_remove()
+            component.config(text="")
+            return True
+            
+        except Exception as e:
+            print(f"Error rendering plan: {e}")
+            return False
 
     def _query_plan_display(self):
         # parent
