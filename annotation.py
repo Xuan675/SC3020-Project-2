@@ -183,11 +183,10 @@ def _extract_query_components(query):
     )
     
     join_matches = re.findall(
-        r"\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+\w+(?:\s+\w+)?\s+ON\s+(.*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
+        r"\b(?:(INNER|LEFT|RIGHT|FULL|CROSS)\s+)?JOIN\s+\w+(?:\s+\w+)?\s+ON\s+(.*?)(?=\b(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)",
         normalized,
         flags=re.IGNORECASE,
     )
-
     components = []
 
     if from_match:
@@ -210,10 +209,11 @@ def _extract_query_components(query):
                 "alias": alias,
             })
 
-    for on_condition in join_matches:
+    for join_keyword, on_condition in join_matches:
         components.append({
             "type": "join",
             "fragment": on_condition.strip(),
+            "join_keyword": (join_keyword or "INNER").upper(),   # NEW
         })
 
     if where_match:
@@ -311,8 +311,13 @@ def generate_annotations(query, qep, aqps):
                 continue
 
             selected = explanation["selected"]
+            join_keyword = component.get("join_keyword", "INNER")   # NEW
+            join_text = selected["node_type"]
+            if join_keyword != "INNER":
+                join_text = f"{selected['node_type']} for {join_keyword} JOIN semantics"   # NEW
+
             annotations.append(
-                f"[ON {component['fragment']}] Executed using {selected['node_type']} "
+                f"[ON {component['fragment']}] Executed using {join_text} "
                 f"(total={selected['total_cost']}, rows={selected['plan_rows']})."
             )
 
